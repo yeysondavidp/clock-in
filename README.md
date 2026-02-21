@@ -137,14 +137,6 @@ The boot receiver ensures scheduled notifications survive device restarts.
 - Android Studio with Android SDK
 - A physical device or emulator running Android 8.0+
 
-### Installation
-
-```bash
-git clone https://github.com/your-username/clock-in.git
-cd clock-in
-flutter pub get
-flutter run
-```
 
 ---
 
