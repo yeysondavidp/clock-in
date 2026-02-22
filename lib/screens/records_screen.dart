@@ -120,7 +120,8 @@ class _RecordsScreenState extends State<RecordsScreen> {
       final lunchBreak = int.parse(
           await db.getSetting('lunch_break_minutes') ?? '30');
 
-      totalHours = TimeCalculator.calculateTotalHours(startTime, endTime, lunchBreak);
+      totalHours = TimeCalculator.calculateRegularHours(
+          startTime, endTime, standardHours, lunchBreak);
       otimeHours = TimeCalculator.calculateOvertimeHours(startTime, endTime, standardHours);
     }
 
@@ -244,7 +245,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  _summaryChip('Total',
+                  _summaryChip('Regular',
                       TimeCalculator.formatHours(record.totalHours ?? 0),
                       Colors.blue),
                   _summaryChip('Overtime',

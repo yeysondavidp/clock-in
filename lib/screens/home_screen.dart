@@ -70,8 +70,8 @@ class _HomeScreenState extends State<HomeScreen> {
         await db.getSetting('lunch_break_minutes') ?? '30');
 
     // Calculate hours
-    final total = TimeCalculator.calculateTotalHours(_todayRecord!.startTime!, timeNow, lunchBreak);
-    final overtime = TimeCalculator.calculateOvertimeHours(_todayRecord!.startTime!, _todayRecord!.endTime!, standardHours);
+   final total = TimeCalculator.calculateRegularHours(_todayRecord!.startTime!, timeNow, standardHours, lunchBreak);
+    final overtime = TimeCalculator.calculateOvertimeHours(_todayRecord!.startTime!,timeNow, standardHours);
 
     // Build updated record
     final updatedRecord = Record(
@@ -166,7 +166,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _summaryRow('Clock In',     _todayRecord!.startTime ?? ''),
         _summaryRow('Clock Out',    _todayRecord!.endTime ?? ''),
         const Divider(height: 32),
-        _summaryRow('Total Hours',
+        _summaryRow('Regular Hours',
             TimeCalculator.formatHours(_todayRecord!.totalHours ?? 0)),
         _summaryRow('Overtime',
             TimeCalculator.formatHours(_todayRecord!.otimeHours ?? 0)),

@@ -16,6 +16,16 @@ class TimeCalculator {
     return workedMinutes / 60.0;
   }
 
+  static double calculateRegularHours(String startTime, String endTime,
+      double standardHours, int lunchBreakMinutes) {
+    final totalWorked = calculateTotalHours(startTime, endTime, lunchBreakMinutes);
+    final overtime = calculateOvertimeHours(startTime, endTime, standardHours);
+
+    // Regular hours = net worked minus overtime
+    final regular = totalWorked - overtime;
+    return regular > 0 ? regular : totalWorked;
+  }
+
   // Receives total hours worked and the standard hours from settings
   // Returns overtime hours, minimum 0
   static double calculateOvertimeHours(String startTime, String endTime, double standardHours) {
