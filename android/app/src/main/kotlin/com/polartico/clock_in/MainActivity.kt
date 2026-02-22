@@ -1,4 +1,4 @@
-package com.example.clock_in
+package com.polartico.clock_in
 
 import io.flutter.embedding.android.FlutterActivity
 
