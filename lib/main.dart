@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'services/notification_service.dart';
-import 'screens/home_screen.dart';
+import 'screens/main_navigation.dart';
 
 void main() async {
   // Ensures Flutter is fully initialized before we run any async code
@@ -27,7 +27,7 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
       ),
-      home: const HomeScreen(),
+      home: const MainNavigation(),
     );
   }
 }
