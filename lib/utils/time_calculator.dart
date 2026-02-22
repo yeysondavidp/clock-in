@@ -6,15 +6,25 @@ class TimeCalculator {
     final start = _parseTime(startTime);
     final end = _parseTime(endTime);
 
-    // Convert minutes to decimal hours: 9h 25min = 9.41h
-    final workedMinutes = end.difference(start).inMinutes - lunchBreakMinutes;
+    final rawMinutes = end.difference(start).inMinutes;
+
+    // Deduct lunch break only if worked more than 6 hours (360 min)
+    final workedMinutes = rawMinutes > 360
+        ? rawMinutes - lunchBreakMinutes
+        : rawMinutes;
+
     return workedMinutes / 60.0;
   }
 
   // Receives total hours worked and the standard hours from settings
   // Returns overtime hours, minimum 0
-  static double calculateOvertimeHours(double totalHours, double standardHours) {
-    final overtime = totalHours - standardHours;
+  static double calculateOvertimeHours(String startTime, String endTime, double standardHours) {
+    final start = _parseTime(startTime);
+    final end = _parseTime(endTime);
+
+    // Overtime calculated on raw hours before lunch deduction
+    final rawHours = end.difference(start).inMinutes / 60.0;
+    final overtime = rawHours - standardHours;
     return overtime > 0 ? overtime : 0.0;
   }
 

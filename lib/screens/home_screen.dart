@@ -71,7 +71,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // Calculate hours
     final total = TimeCalculator.calculateTotalHours(_todayRecord!.startTime!, timeNow, lunchBreak);
-    final overtime = TimeCalculator.calculateOvertimeHours(total, standardHours);
+    final overtime = TimeCalculator.calculateOvertimeHours(_todayRecord!.startTime!, _todayRecord!.endTime!, standardHours);
 
     // Build updated record
     final updatedRecord = Record(
@@ -94,16 +94,16 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Clock In'),
-        actions: [
-          // Button to navigate to records screen (we'll build this next)
-          IconButton(
-            icon: const Icon(Icons.list),
-            onPressed: () {
-              // Navigator.push(context, ...) — coming next
-            },
-          ),
-        ],
+        // title: const Text('Clock In'),
+        // actions: [
+        //   // Button to navigate to records screen (we'll build this next)
+        //   IconButton(
+        //     icon: const Icon(Icons.list),
+        //     onPressed: () {
+        //       // Navigator.push(context, ...) — coming next
+        //     },
+        //   ),
+        // ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
