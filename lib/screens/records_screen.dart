@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../database/database_helper.dart';
 import '../models/record.dart';
 import '../utils/time_calculator.dart';
+import '../services/export_service.dart';
 
 class RecordsScreen extends StatefulWidget {
   const RecordsScreen({super.key});
@@ -167,12 +168,104 @@ class _RecordsScreenState extends State<RecordsScreen> {
     );
   }
 
+  Future<void> _showExportDialog() async {
+    DateTime fromDate = DateTime.now().subtract(const Duration(days: 30));
+    DateTime toDate = DateTime.now();
+
+    await showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Export Records'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // From date
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('From'),
+                subtitle: Text(
+                    '${fromDate.year}-${fromDate.month.toString().padLeft(2, '0')}-${fromDate.day.toString().padLeft(2, '0')}'),
+                trailing: const Icon(Icons.calendar_today),
+                onTap: () async {
+                  final picked = await showDatePicker(
+                    context: context,
+                    initialDate: fromDate,
+                    firstDate: DateTime(2024),
+                    lastDate: DateTime.now(),
+                  );
+                  if (picked != null) {
+                    setDialogState(() => fromDate = picked);
+                  }
+                },
+              ),
+
+              // To date
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('To'),
+                subtitle: Text(
+                    '${toDate.year}-${toDate.month.toString().padLeft(2, '0')}-${toDate.day.toString().padLeft(2, '0')}'),
+                trailing: const Icon(Icons.calendar_today),
+                onTap: () async {
+                  final picked = await showDatePicker(
+                    context: context,
+                    initialDate: toDate,
+                    firstDate: DateTime(2024),
+                    lastDate: DateTime.now(),
+                  );
+                  if (picked != null) {
+                    setDialogState(() => toDate = picked);
+                  }
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.download),
+              label: const Text('Export'),
+              onPressed: () async {
+                Navigator.pop(context);
+                try {
+                  await ExportService.instance.exportRecordsToCSV(fromDate, toDate);
+                } catch (e) {
+                  if (mounted) {
+                    _showMessage(e.toString().replaceAll('Exception: ', ''));
+                  }
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
   // ─── UI ─────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Records')),
+      appBar: AppBar(
+        title: const Text('Records'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.download),
+            onPressed: _showExportDialog,
+            tooltip: 'Export to CSV',
+          ),
+        ],
+      ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _records.isEmpty

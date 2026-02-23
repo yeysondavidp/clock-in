@@ -36,6 +36,9 @@ dependencies:
   timezone: ^0.9.0          # Para manejar zonas horarias en notificaciones
   intl: ^0.19.0             # Para formatear fechas y horas
   provider: ^6.1.0          # Para manejo de estado
+  csv: ^6.0.0
+  path_provider: ^2.1.0    # to access device storage
+  share_plus: ^10.0.0      # to share/save the file
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.

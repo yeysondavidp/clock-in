@@ -62,7 +62,7 @@ class DatabaseHelper {
     final now = DateTime.now().toIso8601String();
     final defaults = [
       {'key': 'checkin_notification_time',  'value': '08:00'},
-      {'key': 'checkout_notification_time', 'value': '17:00'},
+      {'key': 'checkout_notification_time', 'value': '16:00'},
       {'key': 'standard_work_hours',        'value': '8'},
       {'key': 'lunch_break_minutes', 'value': '30'},
       {'key': 'work_days',                  'value': '1,2,3,4,5'},
@@ -209,6 +209,17 @@ class DatabaseHelper {
       where: 'key = ?',
       whereArgs: [key],
     );
+  }
+
+  Future<List<Record>> getRecordsByDateRange(String from, String to) async {
+    final db = await instance.database;
+    final result = await db.query(
+      'records',
+      where: 'date >= ? AND date <= ?',
+      whereArgs: [from, to],
+      orderBy: 'date ASC',
+    );
+    return result.map((map) => Record.fromMap(map)).toList();
   }
 
   Future<void> close() async {
