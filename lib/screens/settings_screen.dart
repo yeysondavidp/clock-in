@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:workmanager/workmanager.dart';
 import '../database/database_helper.dart';
 import '../services/notification_service.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import '../services/work_notification_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -60,10 +63,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _saveSetting(String key, String value) async {
     await db.updateSetting(key, value);
-
-    // Reschedule notifications whenever any setting changes
-    await NotificationService.instance.scheduleAllNotifications();
-
+    await WorkNotificationService.instance.scheduleAllNotifications();
     _showMessage('Setting saved');
   }
 
