@@ -1,8 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:workmanager/workmanager.dart';
 import '../database/database_helper.dart';
-import '../services/notification_service.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../services/work_notification_service.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -22,6 +19,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // Time values
   String _checkinTime  = '08:00';
   String _checkoutTime = '16:00';
+  int _roundingMinutes = 0;
 
   // Switch value
   bool _notificationsEnabled = true;
@@ -50,6 +48,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final standardHours = await db.getSetting('standard_work_hours')        ?? '8';
     final lunchBreak    = await db.getSetting('lunch_break_minutes')        ?? '30';
     final notifications = await db.getSetting('notifications_enabled')      ?? 'true';
+    final rounding = await db.getSetting('time_rounding_minutes') ?? '0';
+
 
     setState(() {
       _checkinTime  = checkin;
@@ -58,6 +58,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _lunchBreakController.text    = lunchBreak;
       _notificationsEnabled         = notifications == 'true';
       _isLoading = false;
+      _roundingMinutes = int.parse(rounding);
     });
   }
 
@@ -225,6 +226,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       }
                     },
                   ),
+                ),
+              ],
+            ),
+          ),
+          // Time Rounding
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Time Rounding',
+                          style: TextStyle(fontSize: 16)),
+                      Text('Round clock in/out to nearest interval',
+                          style: TextStyle(fontSize: 13, color: Colors.grey)),
+                    ],
+                  ),
+                ),
+                DropdownButton<int>(
+                  value: _roundingMinutes,
+                  items: const [
+                    DropdownMenuItem(value: 0,  child: Text('Off')),
+                    DropdownMenuItem(value: 2, child: Text('2 min')),
+                    DropdownMenuItem(value: 3, child: Text('3 min')),
+                    DropdownMenuItem(value: 5,  child: Text('5 min')),
+                    DropdownMenuItem(value: 10, child: Text('10 min')),
+                  ],
+                  onChanged: (value) async {
+                    if (value == null) return;
+                    setState(() => _roundingMinutes = value);
+                    await _saveSetting('time_rounding_minutes', value.toString());
+
+                    // Temporal debug
+                    final saved = await db.getSetting('time_rounding_minutes');
+                    print('Saved rounding: $saved');
+                  },
                 ),
               ],
             ),

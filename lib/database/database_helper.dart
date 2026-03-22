@@ -2,7 +2,6 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/record.dart';
 import '../models/holiday.dart';
-import '../models/setting.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
@@ -19,7 +18,8 @@ class DatabaseHelper {
   Future<Database> _initDB(String filePath) async {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, filePath);
-    return await openDatabase(path, version: 1, onCreate: _createDB);
+
+    return await openDatabase(path, version: 3, onCreate: _createDB, onUpgrade: _onUpgrade);
   }
 
   Future _createDB(Database db, int version) async {
@@ -67,6 +67,7 @@ class DatabaseHelper {
       {'key': 'lunch_break_minutes', 'value': '30'},
       {'key': 'work_days',                  'value': '1,2,3,4,5'},
       {'key': 'notifications_enabled',      'value': 'true'},
+      {'key': 'time_rounding_minutes', 'value': '0'},
     ];
 
     for (final s in defaults) {
@@ -220,6 +221,15 @@ class DatabaseHelper {
       orderBy: 'date ASC',
     );
     return result.map((map) => Record.fromMap(map)).toList();
+  }
+
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 3) {
+      await db.execute('''
+      INSERT OR IGNORE INTO settings (key, value, timestamp)
+      VALUES ('time_rounding_minutes', '0', '${DateTime.now().toIso8601String()}')
+    ''');
+    }
   }
 
   Future<void> close() async {

@@ -38,7 +38,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _clockIn() async {
     final now = DateTime.now();
     final today = DateFormat('yyyy-MM-dd').format(now);
-    final timeNow = DateFormat('HH:mm').format(now);
+    var timeNow = DateFormat('HH:mm').format(now);
 
     // Check if today is a holiday
     final isHoliday = await db.isHoliday(today);
@@ -47,6 +47,9 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
+    final rounding = int.parse(await db.getSetting('time_rounding_minutes') ?? '0');
+    timeNow = TimeCalculator.roundTime(timeNow, rounding);
+
     final record = Record(
       date: today,
       startTime: timeNow,
@@ -54,14 +57,14 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     await db.insertRecord(record);
-    await _loadTodayRecord();   // refresh UI
+    await _loadTodayRecord();
   }
 
   Future<void> _clockOut() async {
     if (_todayRecord == null) return;
 
     final now = DateTime.now();
-    final timeNow = DateFormat('HH:mm').format(now);
+    var timeNow = DateFormat('HH:mm').format(now);
 
     // Get settings for calculation
     final standardHours = double.parse(
@@ -69,6 +72,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final lunchBreak = int.parse(
         await db.getSetting('lunch_break_minutes') ?? '30');
 
+    final rounding = int.parse(await db.getSetting('time_rounding_minutes') ?? '0');
+    timeNow = TimeCalculator.roundTime(timeNow, rounding);
     // Calculate hours
    final total = TimeCalculator.calculateRegularHours(_todayRecord!.startTime!, timeNow, standardHours, lunchBreak);
     final overtime = TimeCalculator.calculateOvertimeHours(_todayRecord!.startTime!,timeNow, standardHours);
@@ -85,7 +90,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     await db.updateRecord(updatedRecord);
-    await _loadTodayRecord();   // refresh UI
+    await _loadTodayRecord();
   }
 
   // ─── UI ─────────────────────────────────────────────────
