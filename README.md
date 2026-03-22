@@ -7,12 +7,16 @@ A Flutter mobile application for tracking daily work attendance. The app sends s
 ## Features
 
 - Scheduled weekday notifications for clock in and clock out
+- Notifications survive device restarts and work with app closed (via WorkManager)
 - One-tap clock in / clock out from the home screen
+- Configurable time rounding for clock in/out (3, 5, 10, 15, or 30 min intervals)
 - Automatic calculation of total hours worked and overtime
-- Lunch break deducted automatically from total hours
+- Lunch break deducted automatically from total hours (only when worked > 6 hours)
 - NSW public holidays pre-loaded (2026–2027)
 - Full record editing in case the user missed clocking in or out
-- Configurable settings: notification times, standard work hours, lunch break duration
+- CSV export with date range filter
+- Holidays management screen (add / delete)
+- Configurable settings: notification times, standard work hours, lunch break duration, time rounding
 
 ---
 
@@ -22,9 +26,12 @@ A Flutter mobile application for tracking daily work attendance. The app sends s
 |---|---|
 | Framework | Flutter (Dart) |
 | Local Database | SQLite via `sqflite` |
+| Background Tasks | `workmanager` |
 | Notifications | `flutter_local_notifications` |
 | Date Formatting | `intl` |
-| Timezone Support | `timezone` |
+| Timezone Support | `timezone`, `flutter_timezone` |
+| CSV Export | `csv`, `path_provider`, `share_plus` |
+| Battery Exemption | `android_intent_plus`, `device_info_plus` |
 
 ---
 
@@ -34,18 +41,23 @@ A Flutter mobile application for tracking daily work attendance. The app sends s
 lib/
 ├── main.dart
 ├── database/
-│   └── database_helper.dart     # SQLite CRUD operations and initialization
+│   └── database_helper.dart          # SQLite CRUD operations and initialization
 ├── models/
-│   ├── record.dart              # Work record entity
-│   ├── holiday.dart             # Public holiday entity
-│   └── setting.dart             # App setting entity
+│   ├── record.dart                   # Work record entity
+│   ├── holiday.dart                  # Public holiday entity
+│   └── setting.dart                  # App setting entity
 ├── screens/
-│   ├── home_screen.dart         # Clock in/out UI and daily summary
-│   └── records_screen.dart      # Record history and editing (coming soon)
+│   ├── main_navigation.dart          # Bottom navigation bar
+│   ├── home_screen.dart              # Clock in/out UI and daily summary
+│   ├── records_screen.dart           # Record history, editing and CSV export
+│   ├── holidays_screen.dart          # Holiday management
+│   └── settings_screen.dart          # App configuration
 ├── services/
-│   └── notification_service.dart # Weekday notification scheduling
+│   ├── notification_service.dart     # Notification plugin initialization
+│   ├── work_notification_service.dart # WorkManager background scheduling
+│   └── export_service.dart           # CSV export logic
 └── utils/
-    └── time_calculator.dart     # Hours and overtime calculation logic
+    └── time_calculator.dart          # Hours, overtime and time rounding logic
 ```
 
 ---
@@ -59,7 +71,7 @@ lib/
 | date | TEXT | Work date `yyyy-MM-dd` |
 | start_time | TEXT | Clock in time `HH:mm` |
 | end_time | TEXT | Clock out time `HH:mm` |
-| total_hours | REAL | Hours worked after lunch deduction |
+| total_hours | REAL | Regular hours worked (excluding overtime) |
 | otime_hours | REAL | Overtime hours above standard |
 | timestamp | TEXT | ISO 8601 record creation time |
 
@@ -83,7 +95,7 @@ lib/
 
 ## Default Settings
 
-| Key | Default Value | Description |
+| Key | Default | Description |
 |---|---|---|
 | `checkin_notification_time` | `08:00` | Morning notification time |
 | `checkout_notification_time` | `17:00` | Afternoon notification time |
@@ -91,6 +103,7 @@ lib/
 | `lunch_break_minutes` | `30` | Lunch break deducted from total |
 | `work_days` | `1,2,3,4,5` | Monday to Friday |
 | `notifications_enabled` | `true` | Master notification switch |
+| `time_rounding_minutes` | `0` | Clock in/out rounding interval (0 = off) |
 
 ---
 
@@ -98,34 +111,63 @@ lib/
 
 ```
 raw_hours     = end_time - start_time
-total_hours   = raw_hours - (lunch_break_minutes / 60)
-otime_hours   = max(0, total_hours - standard_work_hours)
+lunch_deduct  = lunch_break_minutes / 60  (only if raw_hours > 6)
+otime_hours   = max(0, raw_hours - standard_work_hours)
+total_hours   = raw_hours - lunch_deduct - otime_hours
 ```
 
 Example:
 ```
-start_time          = 08:00
-end_time            = 17:00
-lunch_break         = 30 min
+start_time    = 08:00
+end_time      = 17:30
+lunch_break   = 30 min
+standard      = 8h
 
-total_hours         = 9.0 - 0.5  = 8.5h
-otime_hours         = 8.5 - 8.0  = 0.5h
+raw_hours     = 9.5h
+otime_hours   = max(0, 9.5 - 8.0) = 1.5h
+total_hours   = 9.5 - 0.5 - 1.5   = 7.5h
 ```
+
+---
+
+## Time Rounding
+
+When enabled, clock in/out times are rounded to the nearest configured interval before saving. Rounding only applies if the actual time falls within the selected tolerance.
+
+```
+tolerance     = 10 min
+clock in      = 08:07 → nearest multiple = 08:10 → saved as 08:10
+clock in      = 08:23 → nearest multiple = 08:20 → saved as 08:20
+```
+
+Available intervals: Off, 3, 5, 10, 15, 30 minutes.
+
+---
+
+## Notification Architecture
+
+Notifications are scheduled via **WorkManager** rather than `flutter_local_notifications` `zonedSchedule`. This ensures reliable delivery on all Android versions including MIUI devices, even when the app is closed or the device is idle.
+
+Each notification task:
+1. Checks if the current day is a weekend or NSW public holiday — skips if so
+2. Shows the notification via `flutter_local_notifications`
+3. Reschedules itself for the next working day at the same time
+
+On Android 12+, the app requests battery optimization exemption on first launch to prevent the system from deferring WorkManager tasks.
 
 ---
 
 ## Android Permissions
 
-The following permissions are required in `AndroidManifest.xml`:
-
 ```xml
 <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
-<uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
-<uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
 <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+<uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+<uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32"/>
+<uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
 ```
-
-The boot receiver ensures scheduled notifications survive device restarts.
 
 ---
 
@@ -133,10 +175,16 @@ The boot receiver ensures scheduled notifications survive device restarts.
 
 ### Prerequisites
 
-- Flutter SDK >= 3.0.0
+- Flutter SDK >= 3.5.0
 - Android Studio with Android SDK
-- A physical device or emulator running Android 8.0+
+- Physical device or emulator running Android 8.0+ (API 26+)
 
+### Run
+
+```bash
+flutter pub get
+flutter run
+```
 
 ---
 
@@ -145,11 +193,33 @@ The boot receiver ensures scheduled notifications survive device restarts.
 ```yaml
 sqflite: ^2.3.0
 path: ^1.9.0
-flutter_local_notifications: ^17.0.0
+workmanager: ^0.9.0+3
+flutter_local_notifications: ^20.1.0
+flutter_timezone: ^5.0.1
 timezone: ^0.9.0
 intl: ^0.19.0
-provider: ^6.1.0
+csv: ^6.0.0
+path_provider: ^2.1.0
+share_plus: ^10.0.0
+android_intent_plus: ^5.0.0
+device_info_plus: ^10.0.0
 ```
+
+---
+
+## Database Migrations
+
+| Version | Changes |
+|---|---|
+| 1 | Initial schema — records, holidays, settings |
+| 2 | Reserved (no schema changes) |
+| 3 | Added `time_rounding_minutes` setting |
+
+---
+
+## Public Holidays
+
+NSW public holidays for 2026 and 2027 are pre-loaded on first install based on official dates from the [NSW Government website](https://www.nsw.gov.au/about-nsw/public-holidays). Additional holidays can be managed from the Holidays screen.
 
 ---
 
@@ -157,18 +227,15 @@ provider: ^6.1.0
 
 - [x] Database layer (records, holidays, settings)
 - [x] Time calculation utilities
-- [x] Notification service with weekday scheduling
+- [x] WorkManager background notification scheduling
 - [x] Home screen with clock in/out
-- [ ] Records screen with edit capability
-- [ ] Settings screen
-- [ ] Holidays management screen
+- [x] Records screen with edit and delete
+- [x] Settings screen
+- [x] Holidays management screen
+- [x] CSV export with date range filter
+- [x] Time rounding for clock in/out
+- [ ] App icon
 - [ ] Reports / summary view
-
----
-
-## Public Holidays
-
-NSW public holidays for 2026 and 2027 are pre-loaded on first install based on official dates from the [NSW Government website](https://www.nsw.gov.au/about-nsw/public-holidays). Additional holidays can be managed from the holidays screen.
 
 ---
 
