@@ -2,6 +2,7 @@ import 'package:clock_in/services/work_notification_service.dart';
 import 'package:flutter/material.dart';
 import 'services/notification_service.dart';
 import 'screens/main_navigation.dart';
+import 'package:flutter/foundation.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -9,19 +10,16 @@ void main() async {
   await NotificationService.instance.initialize();
   await NotificationService.instance.requestPermission();
   await WorkNotificationService.instance.initialize();
-  await WorkNotificationService.instance.initialize();
   await WorkNotificationService.instance.requestBatteryOptimizationExemption();
-  await WorkNotificationService.instance.scheduleAllNotifications();
 
   try {
     await WorkNotificationService.instance.scheduleAllNotifications();
   } catch (e) {
-    print('WorkManager scheduling failed: $e');
+    debugPrint('WorkManager scheduling failed: $e');
   }
 
   runApp(const MyApp());
 }
-
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 

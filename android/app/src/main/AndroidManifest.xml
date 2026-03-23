@@ -4,7 +4,6 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"
                      android:maxSdkVersion="32"/>
     <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
@@ -12,7 +11,7 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
 
     <application
-        android:label="clock_in"
+        android:label="Clock In"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
@@ -42,21 +41,7 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
-        <receiver android:exported="false"
-                  android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED"/>
-                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
-            </intent-filter>
-        </receiver>
-        <service
-                android:name="com.dexterous.flutterlocalnotifications.ForegroundService"
-                android:exported="false"
-                android:foregroundServiceType="specialUse">
-            <property
-                    android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                    android:value="alarm"/>
-        </service>
+
         <service
                 android:name="androidx.work.impl.foreground.SystemForegroundService"
                 android:foregroundServiceType="dataSync"
