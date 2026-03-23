@@ -58,22 +58,20 @@ class TimeCalculator {
   }
 
   static String roundTime(String time, int toleranceMinutes) {
-    // If tolerance is 0, rounding is disabled
     if (toleranceMinutes == 0) return time;
 
     final parts = time.split(':');
     int hour = int.parse(parts[0]);
     int minute = int.parse(parts[1]);
 
-    // Find nearest multiple of toleranceMinutes
-    final lowerMultiple = (minute ~/ toleranceMinutes) * toleranceMinutes;
-    final upperMultiple = lowerMultiple + toleranceMinutes;
+    // Always round to nearest multiple of 5
+    final lowerMultiple = (minute ~/ 5) * 5;
+    final upperMultiple = lowerMultiple + 5;
 
-    // Calculate distance to each multiple
     final distToLower = minute - lowerMultiple;
     final distToUpper = upperMultiple - minute;
 
-    // Round to nearest multiple
+    // Pick nearest multiple of 5
     int roundedMinute;
     if (distToLower <= distToUpper) {
       roundedMinute = lowerMultiple;
@@ -81,15 +79,15 @@ class TimeCalculator {
       roundedMinute = upperMultiple;
     }
 
-    // Handle overflow — if roundedMinute = 60, advance hour
+    // Only apply if within tolerance
+    final diff = (minute - roundedMinute).abs();
+    if (diff > toleranceMinutes) return time;
+
+    // Handle overflow
     if (roundedMinute == 60) {
       roundedMinute = 0;
       hour = (hour + 1) % 24;
     }
-
-    // Only apply if within tolerance
-    final diff = (minute - roundedMinute).abs();
-    if (diff > toleranceMinutes) return time;
 
     return '${hour.toString().padLeft(2, '0')}:${roundedMinute.toString().padLeft(2, '0')}';
   }
