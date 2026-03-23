@@ -4,6 +4,21 @@ A Flutter mobile application for tracking daily work attendance. The app sends s
 
 ---
 
+## Screenshots
+
+
+<p float="left">
+    <img src="screenshots/home.jpg" width="200" />
+    <img src="screenshots/home2.jpg" width="200" />
+    <img src="screenshots/home3.jpg" width="200" />
+    <img src="screenshots/records.jpg" width="200" />
+    <img src="screenshots/holidays.jpg" width="200" />
+    <img src="screenshots/settings.jpg" width="200" />
+</p>
+
+
+---
+
 ## Features
 
 - Scheduled weekday notifications for clock in and clock out
@@ -132,15 +147,17 @@ total_hours   = 9.5 - 0.5 - 1.5   = 7.5h
 
 ## Time Rounding
 
-When enabled, clock in/out times are rounded to the nearest configured interval before saving. Rounding only applies if the actual time falls within the selected tolerance.
+When enabled, clock in/out times are rounded to the nearest multiple of 5 minutes before saving. The tolerance setting defines the maximum distance allowed for rounding to apply.
 
 ```
-tolerance     = 10 min
-clock in      = 08:07 → nearest multiple = 08:10 → saved as 08:10
-clock in      = 08:23 → nearest multiple = 08:20 → saved as 08:20
+tolerance = 3 min
+07:58 → 08:00  (2 min from 08:00 ≤ 3) ✓
+08:03 → 08:00  (3 min from 08:00 ≤ 3) ✓
+08:08 → 08:10  (2 min from 08:10 ≤ 3) ✓
+08:06 → 08:05  (1 min from 08:05 ≤ 3) ✓
 ```
 
-Available intervals: Off, 3, 5, 10, 15, 30 minutes.
+Available tolerances: Off, 3, 5, 10, 15, 30 minutes.
 
 ---
 
@@ -241,4 +258,10 @@ NSW public holidays for 2026 and 2027 are pre-loaded on first install based on o
 
 ## License
 
-This project is for personal use.
+Copyright (c) 2025 Polartico
+
+This project is licensed under the [Creative Commons Attribution-NonCommercial 4.0 International License](https://creativecommons.org/licenses/by-nc/4.0/).
+
+You are free to use, share, and adapt this software for **personal, non-commercial purposes only**, provided appropriate credit is given.
+
+[![CC BY-NC 4.0](https://licensebuttons.net/l/by-nc/4.0/88x31.png)](https://creativecommons.org/licenses/by-nc/4.0/)
