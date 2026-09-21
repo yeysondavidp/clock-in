@@ -4,21 +4,38 @@ import 'services/notification_service.dart';
 import 'screens/main_navigation.dart';
 import 'package:flutter/foundation.dart';
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await NotificationService.instance.initialize();
-  await NotificationService.instance.requestPermission();
-  await WorkNotificationService.instance.initialize();
-  await WorkNotificationService.instance.requestBatteryOptimizationExemption();
-
-  try {
-    await WorkNotificationService.instance.scheduleAllNotifications();
-  } catch (e) {
-    debugPrint('WorkManager scheduling failed: $e');
-  }
-
+  // Draw the UI first; service setup must never block the first frame
   runApp(const MyApp());
+  WidgetsBinding.instance.addPostFrameCallback((_) => _initServices());
+}
+
+// Each step runs independently with a timeout so a hung platform call
+// (permission dialog, settings intent) can't stall the rest.
+Future<void> _initServices() async {
+  await _runStep('WorkManager init',
+      () => WorkNotificationService.instance.initialize());
+  await _runStep('Notifications init',
+      () => NotificationService.instance.initialize());
+  await _runStep('WorkManager scheduling',
+      () => WorkNotificationService.instance.scheduleAllNotifications());
+  // User-facing prompts go last and may wait on the user
+  await _runStep('Notification permission',
+      () => NotificationService.instance.requestPermission(),
+      timeout: const Duration(minutes: 1));
+  await _runStep('Battery optimization exemption',
+      () => WorkNotificationService.instance.requestBatteryOptimizationExemption());
+}
+
+Future<void> _runStep(String name, Future<void> Function() step,
+    {Duration timeout = const Duration(seconds: 10)}) async {
+  try {
+    await step().timeout(timeout);
+  } catch (e) {
+    debugPrint('$name failed: $e');
+  }
 }
 class MyApp extends StatelessWidget {
   const MyApp({super.key});

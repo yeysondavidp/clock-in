@@ -3,6 +3,7 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:workmanager/workmanager.dart';
 import '../database/database_helper.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'dart:io';
 
@@ -167,10 +168,17 @@ class WorkNotificationService {
     );
   }
 
+  static const _batteryChannel = MethodChannel('com.polartico.clock_in/battery');
+
   Future<void> requestBatteryOptimizationExemption() async {
     if (Platform.isAndroid) {
       final androidInfo = await DeviceInfoPlugin().androidInfo;
       if (androidInfo.version.sdkInt >= 23) {
+        // Only prompt when not already exempt, otherwise Settings opens on every launch
+        final ignoring = await _batteryChannel
+            .invokeMethod<bool>('isIgnoringBatteryOptimizations');
+        if (ignoring == true) return;
+
         final intent = AndroidIntent(
           action: 'android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
           data: 'package:com.polartico.clock_in',
