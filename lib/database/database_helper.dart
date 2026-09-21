@@ -19,7 +19,7 @@ class DatabaseHelper {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, filePath);
 
-    return await openDatabase(path, version: 3, onCreate: _createDB, onUpgrade: _onUpgrade);
+    return await openDatabase(path, version: schemaVersion, onCreate: _createDB, onUpgrade: _onUpgrade);
   }
 
   Future _createDB(Database db, int version) async {
@@ -235,5 +235,20 @@ class DatabaseHelper {
   Future<void> close() async {
     final db = await instance.database;
     db.close();
+  }
+
+  // ─── BACKUP SUPPORT ─────────────────────────────────────
+
+  static const int schemaVersion = 3;
+
+  Future<String> get databaseFilePath async =>
+      join(await getDatabasesPath(), 'clockin.db');
+
+  // Closes the connection so the file can be copied or replaced safely.
+  // The next access to `database` reopens it (running migrations if needed).
+  Future<void> closeConnection() async {
+    final db = _database;
+    _database = null;
+    await db?.close();
   }
 }

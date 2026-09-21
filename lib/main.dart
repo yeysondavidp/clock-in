@@ -2,7 +2,11 @@ import 'package:clock_in/services/work_notification_service.dart';
 import 'package:flutter/material.dart';
 import 'services/notification_service.dart';
 import 'screens/main_navigation.dart';
+import 'services/update_service.dart';
+import 'widgets/update_dialog.dart';
 import 'package:flutter/foundation.dart';
+
+final navigatorKey = GlobalKey<NavigatorState>();
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -27,6 +31,16 @@ Future<void> _initServices() async {
       timeout: const Duration(minutes: 1));
   await _runStep('Battery optimization exemption',
       () => WorkNotificationService.instance.requestBatteryOptimizationExemption());
+  await _runStep('Update check', _checkForUpdate,
+      timeout: const Duration(seconds: 15));
+}
+
+Future<void> _checkForUpdate() async {
+  final update = await UpdateService.instance.checkForUpdate();
+  final context = navigatorKey.currentState?.overlay?.context;
+  if (update == null || context == null || !context.mounted) return;
+  // Not awaited: the dialog waits on the user and must not hit the step timeout
+  showUpdateDialog(context, update);
 }
 
 Future<void> _runStep(String name, Future<void> Function() step,
@@ -44,6 +58,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Clock In',
+      navigatorKey: navigatorKey,
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),

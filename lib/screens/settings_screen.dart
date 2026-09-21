@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../database/database_helper.dart';
+import '../services/backup_service.dart';
+import '../services/update_service.dart';
 import '../services/work_notification_service.dart';
+import '../widgets/update_dialog.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -26,6 +30,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   bool _isLoading = true;
 
+  String _appVersion = '';
+  bool _checkingUpdate = false;
+  bool _backupBusy = false;
+
   @override
   void initState() {
     super.initState();
@@ -49,7 +57,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final lunchBreak    = await db.getSetting('lunch_break_minutes')        ?? '30';
     final notifications = await db.getSetting('notifications_enabled')      ?? 'true';
     final rounding = await db.getSetting('time_rounding_minutes') ?? '0';
-
+    final info = await PackageInfo.fromPlatform();
 
     setState(() {
       _checkinTime  = checkin;
@@ -59,7 +67,76 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _notificationsEnabled         = notifications == 'true';
       _isLoading = false;
       _roundingMinutes = int.parse(rounding);
+      _appVersion = info.version;
     });
+  }
+
+  // ─── UPDATES ────────────────────────────────────────────
+
+  Future<void> _checkForUpdate() async {
+    setState(() => _checkingUpdate = true);
+    try {
+      final update = await UpdateService.instance.checkForUpdate();
+      if (!mounted) return;
+      if (update == null) {
+        _showMessage('You are on the latest version');
+      } else {
+        await showUpdateDialog(context, update);
+      }
+    } catch (e) {
+      _showMessage('Could not check for updates: $e');
+    } finally {
+      if (mounted) setState(() => _checkingUpdate = false);
+    }
+  }
+
+  // ─── BACKUP ─────────────────────────────────────────────
+
+  Future<void> _exportBackup() async {
+    setState(() => _backupBusy = true);
+    try {
+      await BackupService.instance.exportBackup();
+    } catch (e) {
+      _showMessage('Backup failed: $e');
+    } finally {
+      if (mounted) setState(() => _backupBusy = false);
+    }
+  }
+
+  Future<void> _restoreBackup() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Restore backup?'),
+        content: const Text(
+            'All current records, holidays and settings will be replaced '
+            'by the ones in the backup file.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Restore'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() => _backupBusy = true);
+    try {
+      final restored = await BackupService.instance.restoreBackup();
+      if (!restored) return;
+      await WorkNotificationService.instance.scheduleAllNotifications();
+      await _loadSettings();
+      _showMessage('Backup restored');
+    } catch (e) {
+      _showMessage('Restore failed: $e');
+    } finally {
+      if (mounted) setState(() => _backupBusy = false);
+    }
   }
 
   Future<void> _saveSetting(String key, String value) async {
@@ -271,13 +348,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           const Divider(),
 
+          // ── BACKUP SECTION ─────────────────────────
+          _sectionHeader('Backup'),
+
+          ListTile(
+            title: const Text('Export Backup'),
+            subtitle: const Text('Save a copy of all your data'),
+            trailing: const Icon(Icons.upload_file),
+            enabled: !_backupBusy,
+            onTap: _exportBackup,
+          ),
+
+          ListTile(
+            title: const Text('Restore Backup'),
+            subtitle: const Text('Replace current data with a backup file'),
+            trailing: const Icon(Icons.settings_backup_restore),
+            enabled: !_backupBusy,
+            onTap: _restoreBackup,
+          ),
+
+          const Divider(),
+
           // ── APP SECTION ────────────────────────────
           _sectionHeader('App'),
 
           ListTile(
             title: const Text('Version'),
-            trailing: const Text('1.0.0',
-                style: TextStyle(color: Colors.grey)),
+            trailing: Text(_appVersion,
+                style: const TextStyle(color: Colors.grey)),
+          ),
+
+          ListTile(
+            title: const Text('Check for Updates'),
+            trailing: _checkingUpdate
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.system_update),
+            enabled: !_checkingUpdate,
+            onTap: _checkForUpdate,
           ),
         ],
       ),
@@ -300,6 +410,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showMessage(String message) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message)),
     );
