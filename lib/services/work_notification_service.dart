@@ -3,6 +3,7 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:workmanager/workmanager.dart';
 import '../database/database_helper.dart';
+import '../models/day_type.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'dart:io';
@@ -55,17 +56,12 @@ Future<void> _showNotification({
     print('_showNotification called: $title');
 
     final now = DateTime.now();
-    if (now.weekday == DateTime.saturday || now.weekday == DateTime.sunday) {
-      print('Skipping: weekend');
-      return;
-    }
-
     final db = DatabaseHelper.instance;
     final dateStr =
         '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-    final isHoliday = await db.isHoliday(dateStr);
-    if (isHoliday) {
-      print('Skipping: holiday');
+    final dayType = await db.getDayType(dateStr);
+    if (!dayType.isWorkday) {
+      print('Skipping: ${dayType.label}');
       return;
     }
 
@@ -108,28 +104,17 @@ Future<void> _rescheduleForNextWorkingDay({
   final hour = int.parse(parts[0]);
   final minute = int.parse(parts[1]);
 
-  // Find next working day (skip weekends)
+  // Find next working day (skip days off and holidays)
   var target = DateTime.now().add(const Duration(days: 1));
   target = DateTime(target.year, target.month, target.day, hour, minute);
 
-  while (target.weekday == DateTime.saturday ||
-      target.weekday == DateTime.sunday) {
-    target = target.add(const Duration(days: 1));
-  }
-
-  // Check if next day is a holiday
   final db = DatabaseHelper.instance;
-  while (true) {
-    final dateStr =
-        '${target.year}-${target.month.toString().padLeft(2, '0')}-${target.day.toString().padLeft(2, '0')}';
-    final isHoliday = await db.isHoliday(dateStr);
-    if (!isHoliday) break;
+  final workDays = await db.getWorkDays();
+  final holidays = await db.getHolidayDates();
+  // Bounded so a misconfiguration can't loop forever
+  for (var i = 0; i < 366; i++) {
+    if (DayType.resolve(target, workDays, holidays).isWorkday) break;
     target = target.add(const Duration(days: 1));
-    // Skip weekends after holiday
-    while (target.weekday == DateTime.saturday ||
-        target.weekday == DateTime.sunday) {
-      target = target.add(const Duration(days: 1));
-    }
   }
 
   final delay = target.difference(DateTime.now());
