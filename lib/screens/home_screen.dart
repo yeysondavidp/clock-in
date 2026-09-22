@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../database/database_helper.dart';
+import '../models/day_summary.dart';
+import '../models/day_type.dart';
 import '../models/record.dart';
+import '../services/session_service.dart';
 import '../utils/time_calculator.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -12,85 +15,92 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  // A session left open yesterday is only picked up (e.g. work past midnight)
+  // if it started this recently; older ones are forgotten clock outs.
+  static const _maxCarryOver = Duration(hours: 12);
+
   final db = DatabaseHelper.instance;
 
-  Record? _todayRecord;      // null = no record yet today
+  List<Record> _todaySessions = [];
+  Record? _openSession;      // session currently running, if any
+  DayType _dayType = DayType.workday;
   bool _isLoading = true;    // controls the loading spinner
 
   @override
   void initState() {
     super.initState();
-    _loadTodayRecord();      // runs automatically when screen opens
+    _loadToday();            // runs automatically when screen opens
   }
 
   // ─── DATA ───────────────────────────────────────────────
 
-  Future<void> _loadTodayRecord() async {
-    final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
-    final record = await db.getRecordByDate(today);
+  Future<void> _loadToday() async {
+    final now = DateTime.now();
+    final today = DateFormat('yyyy-MM-dd').format(now);
+    final sessions = await db.getRecordsByDate(today);
+    final dayType = await db.getDayType(today);
+    final open = await _findOpenSession(now);
 
     setState(() {
-      _todayRecord = record;
+      _todaySessions = sessions;
+      _dayType = dayType;
+      _openSession = open;
       _isLoading = false;
     });
   }
 
-  Future<void> _clockIn() async {
-    final now = DateTime.now();
+  Future<Record?> _findOpenSession(DateTime now) async {
     final today = DateFormat('yyyy-MM-dd').format(now);
-    var timeNow = DateFormat('HH:mm').format(now);
+    final yesterday =
+        DateFormat('yyyy-MM-dd').format(now.subtract(const Duration(days: 1)));
 
-    // Check if today is a holiday
-    final isHoliday = await db.isHoliday(today);
-    if (isHoliday) {
-      _showMessage("Today is a holiday. Enjoy your day!");
-      return;
+    for (final s in await db.getOpenRecordsSince(yesterday)) {
+      if (s.startTime == null) continue;
+      if (s.date == today) return s;
+      final started = DateTime.parse('${s.date} ${s.startTime}');
+      if (now.difference(started) <= _maxCarryOver) return s;
     }
+    return null;
+  }
 
+  Record? get _regularSession =>
+      _todaySessions.where((s) => !s.isExtra).firstOrNull;
+
+  List<Record> get _completedSessions =>
+      _todaySessions.where((s) => s.isComplete).toList();
+
+  Future<String> _roundedNow(DateTime now) async {
     final rounding = int.parse(await db.getSetting('time_rounding_minutes') ?? '0');
-    timeNow = TimeCalculator.roundTime(timeNow, rounding);
+    return TimeCalculator.roundTime(DateFormat('HH:mm').format(now), rounding);
+  }
+
+  // Regular clock in on a workday, or an extra session otherwise
+  Future<void> _clockIn({required String type}) async {
+    final now = DateTime.now();
 
     final record = Record(
-      date: today,
-      startTime: timeNow,
+      date: DateFormat('yyyy-MM-dd').format(now),
+      startTime: await _roundedNow(now),
+      type: type,
       timestamp: now.toIso8601String(),
     );
 
     await db.insertRecord(record);
-    await _loadTodayRecord();
+    await _loadToday();
   }
 
   Future<void> _clockOut() async {
-    if (_todayRecord == null) return;
+    final session = _openSession;
+    if (session == null) return;
 
-    final now = DateTime.now();
-    var timeNow = DateFormat('HH:mm').format(now);
-
-    // Get settings for calculation
-    final standardHours = double.parse(
-        await db.getSetting('standard_work_hours') ?? '8');
-    final lunchBreak = int.parse(
-        await db.getSetting('lunch_break_minutes') ?? '30');
-
-    final rounding = int.parse(await db.getSetting('time_rounding_minutes') ?? '0');
-    timeNow = TimeCalculator.roundTime(timeNow, rounding);
-    // Calculate hours
-   final total = TimeCalculator.calculateRegularHours(_todayRecord!.startTime!, timeNow, standardHours, lunchBreak);
-    final overtime = TimeCalculator.calculateOvertimeHours(_todayRecord!.startTime!,timeNow, standardHours);
-
-    // Build updated record
-    final updatedRecord = Record(
-      id: _todayRecord!.id,
-      date: _todayRecord!.date,
-      startTime: _todayRecord!.startTime,
-      endTime: timeNow,
-      totalHours: total,
-      otimeHours: overtime,
-      timestamp: _todayRecord!.timestamp,
+    final updated = await SessionService.instance.withTimes(
+      session,
+      startTime: session.startTime,
+      endTime: await _roundedNow(DateTime.now()),
     );
 
-    await db.updateRecord(updatedRecord);
-    await _loadTodayRecord();
+    await db.updateRecord(updated);
+    await _loadToday();
   }
 
   // ─── UI ─────────────────────────────────────────────────
@@ -98,18 +108,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        // title: const Text('Clock In'),
-        // actions: [
-        //   // Button to navigate to records screen (we'll build this next)
-        //   IconButton(
-        //     icon: const Icon(Icons.list),
-        //     onPressed: () {
-        //       // Navigator.push(context, ...) — coming next
-        //     },
-        //   ),
-        // ],
-      ),
+      appBar: AppBar(),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _buildBody(),
@@ -120,7 +119,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final today = DateFormat('EEEE, MMMM d').format(DateTime.now());
 
     return Center(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(32.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -129,6 +128,11 @@ class _HomeScreenState extends State<HomeScreen> {
             // Date
             Text(today,
                 style: const TextStyle(fontSize: 18, color: Colors.grey)),
+
+            if (!_dayType.isWorkday) ...[
+              const SizedBox(height: 12),
+              _buildSpecialDayBanner(),
+            ],
 
             const SizedBox(height: 48),
 
@@ -146,87 +150,119 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _buildSpecialDayBanner() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.purple.shade50,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        '${_dayType.label} — any time you log today counts as overtime',
+        textAlign: TextAlign.center,
+        style: TextStyle(color: Colors.purple.shade700),
+      ),
+    );
+  }
+
   Widget _buildStatusCard() {
-    // No record today yet
-    if (_todayRecord == null) {
-      return const Text('No record for today yet.',
-          style: TextStyle(fontSize: 16));
-    }
+    final completed = _completedSessions;
 
-    // Has clock in but no clock out
-    if (_todayRecord!.endTime == null) {
-      return Column(
-        children: [
-          const Text('Clocked in at',
-              style: TextStyle(fontSize: 16, color: Colors.grey)),
-          Text(_todayRecord!.startTime ?? '',
-              style: const TextStyle(fontSize: 48, fontWeight: FontWeight.bold)),
-        ],
-      );
-    }
-
-    // Day completed — show summary
     return Column(
       children: [
-        _summaryRow('Clock In',     _todayRecord!.startTime ?? ''),
-        _summaryRow('Clock Out',    _todayRecord!.endTime ?? ''),
-        const Divider(height: 32),
-        _summaryRow('Regular Hours',
-            TimeCalculator.formatHours(_todayRecord!.totalHours ?? 0)),
-        _summaryRow('Overtime',
-            TimeCalculator.formatHours(_todayRecord!.otimeHours ?? 0)),
+        // Session running
+        if (_openSession != null) ...[
+          Text(_openSession!.isExtra ? 'Overtime session since' : 'Clocked in at',
+              style: const TextStyle(fontSize: 16, color: Colors.grey)),
+          Text(_openSession!.startTime ?? '',
+              style: const TextStyle(fontSize: 48, fontWeight: FontWeight.bold)),
+          if (completed.isNotEmpty) const SizedBox(height: 32),
+        ],
+
+        // Nothing logged and nothing running
+        if (_openSession == null && completed.isEmpty)
+          const Text('No record for today yet.',
+              style: TextStyle(fontSize: 16)),
+
+        // Summary of what's done so far
+        if (completed.isNotEmpty) _buildSummary(completed),
       ],
     );
   }
 
-  Widget _summaryRow(String label, String value) {
+  Widget _buildSummary(List<Record> completed) {
+    final summary = DaySummary.fromSessions(_dayType, completed);
+
+    return Column(
+      children: [
+        for (final s in completed)
+          _summaryRow(s.isExtra ? 'Extra session' : 'Regular session',
+              '${s.startTime} – ${s.endTime}'),
+        const Divider(height: 32),
+        if (_dayType.isWorkday) ...[
+          _summaryRow('Regular Hours', TimeCalculator.formatHours(summary.regular)),
+          _summaryRow('Overtime', TimeCalculator.formatHours(summary.overtime)),
+        ] else ...[
+          if (summary.regular > 0)
+            _summaryRow('Regular Hours', TimeCalculator.formatHours(summary.regular)),
+          _summaryRow('${_dayType.label} Overtime',
+              TimeCalculator.formatHours(summary.specialOvertime),
+              color: Colors.purple),
+        ],
+        _summaryRow('Total', TimeCalculator.formatHours(summary.total)),
+      ],
+    );
+  }
+
+  Widget _summaryRow(String label, String value, {Color? color}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(color: Colors.grey)),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
+          Text(label, style: TextStyle(color: color ?? Colors.grey)),
+          Text(value, style: TextStyle(fontWeight: FontWeight.bold, color: color)),
         ],
       ),
     );
   }
 
   Widget _buildActionButton() {
-    // Day already completed
-    if (_todayRecord?.endTime != null) {
-      return const Text('Day completed ✓',
-          style: TextStyle(fontSize: 16, color: Colors.green));
-    }
-
     // Clock out button
-    if (_todayRecord != null) {
-      return ElevatedButton(
-        onPressed: _clockOut,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.red,
-          minimumSize: const Size(200, 60),
-        ),
-        child: const Text('Clock Out',
-            style: TextStyle(fontSize: 18, color: Colors.white)),
-      );
+    if (_openSession != null) {
+      return _actionButton('Clock Out', Colors.red, _clockOut);
     }
 
-    // Clock in button (default)
-    return ElevatedButton(
-      onPressed: _clockIn,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: Colors.green,
-        minimumSize: const Size(200, 60),
-      ),
-      child: const Text('Clock In',
-          style: TextStyle(fontSize: 18, color: Colors.white)),
+    // Workday without a regular session yet: regular clock in (default)
+    if (_dayType.isWorkday && _regularSession == null) {
+      return _actionButton('Clock In', Colors.green,
+          () => _clockIn(type: Record.typeRegular));
+    }
+
+    // Day already completed, or a weekend/holiday: log overtime
+    return Column(
+      children: [
+        if (_dayType.isWorkday)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 24),
+            child: Text('Day completed ✓',
+                style: TextStyle(fontSize: 16, color: Colors.green)),
+          ),
+        _actionButton('Start Overtime', Colors.deepOrange,
+            () => _clockIn(type: Record.typeExtra)),
+      ],
     );
   }
 
-  void _showMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
+  Widget _actionButton(String label, Color color, VoidCallback onPressed) {
+    return ElevatedButton(
+      onPressed: onPressed,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: color,
+        minimumSize: const Size(200, 60),
+      ),
+      child: Text(label,
+          style: const TextStyle(fontSize: 18, color: Colors.white)),
     );
   }
 }

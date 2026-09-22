@@ -3,10 +3,7 @@ class TimeCalculator {
   // Receives two strings like '08:05' and '17:30'
   // Returns total hours worked as a double like 9.41
   static double calculateTotalHours(String startTime, String endTime, int lunchBreakMinutes) {
-    final start = _parseTime(startTime);
-    final end = _parseTime(endTime);
-
-    final rawMinutes = end.difference(start).inMinutes;
+    final rawMinutes = minutesBetween(startTime, endTime);
 
     // Deduct lunch break only if worked more than 6 hours (360 min)
     final workedMinutes = rawMinutes > 360
@@ -29,13 +26,33 @@ class TimeCalculator {
   // Receives total hours worked and the standard hours from settings
   // Returns overtime hours, minimum 0
   static double calculateOvertimeHours(String startTime, String endTime, double standardHours) {
-    final start = _parseTime(startTime);
-    final end = _parseTime(endTime);
-
     // Overtime calculated on raw hours before lunch deduction
-    final rawHours = end.difference(start).inMinutes / 60.0;
+    final rawHours = minutesBetween(startTime, endTime) / 60.0;
     final overtime = rawHours - standardHours;
     return overtime > 0 ? overtime : 0.0;
+  }
+
+  // Hours of a finished session. Extra sessions and any session on a weekend
+  // or holiday count entirely as overtime, with no lunch break deduction.
+  static ({double regular, double overtime}) calculateSessionHours(
+      String startTime, String endTime,
+      {required bool allOvertime,
+      required double standardHours,
+      required int lunchBreakMinutes}) {
+    if (allOvertime) {
+      return (regular: 0.0, overtime: minutesBetween(startTime, endTime) / 60.0);
+    }
+    return (
+      regular: calculateRegularHours(startTime, endTime, standardHours, lunchBreakMinutes),
+      overtime: calculateOvertimeHours(startTime, endTime, standardHours),
+    );
+  }
+
+  // Minutes from start to end. An end earlier than the start means the
+  // session crossed midnight, so it ends on the next day.
+  static int minutesBetween(String startTime, String endTime) {
+    final minutes = _parseTime(endTime).difference(_parseTime(startTime)).inMinutes;
+    return minutes < 0 ? minutes + 24 * 60 : minutes;
   }
 
   // Helper: converts '08:05' into a DateTime object so Dart can subtract them

@@ -2,6 +2,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/record.dart';
 import '../models/holiday.dart';
+import '../models/day_type.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
@@ -31,6 +32,7 @@ class DatabaseHelper {
         end_time    TEXT,
         total_hours REAL,
         otime_hours REAL,
+        type        TEXT NOT NULL DEFAULT 'regular',
         timestamp   TEXT NOT NULL
       )
     ''');
@@ -129,22 +131,37 @@ class DatabaseHelper {
     return await db.insert('records', record.toMap());
   }
 
-  Future<Record?> getRecordByDate(String date) async {
+  // All sessions of a day, regular session first
+  Future<List<Record>> getRecordsByDate(String date) async {
     final db = await instance.database;
-    final maps = await db.query(
+    final result = await db.query(
       'records',
       where: 'date = ?',
       whereArgs: [date],
+      orderBy: _sessionOrder,
     );
-    if (maps.isEmpty) return null;
-    return Record.fromMap(maps.first);
+    return result.map((map) => Record.fromMap(map)).toList();
+  }
+
+  // Sessions without clock out on or after the given date, newest first
+  Future<List<Record>> getOpenRecordsSince(String date) async {
+    final db = await instance.database;
+    final result = await db.query(
+      'records',
+      where: 'end_time IS NULL AND date >= ?',
+      whereArgs: [date],
+      orderBy: 'date DESC, start_time DESC',
+    );
+    return result.map((map) => Record.fromMap(map)).toList();
   }
 
   Future<List<Record>> getAllRecords() async {
     final db = await instance.database;
-    final result = await db.query('records', orderBy: 'date DESC');
+    final result = await db.query('records', orderBy: 'date DESC, $_sessionOrder');
     return result.map((map) => Record.fromMap(map)).toList();
   }
+
+  static const _sessionOrder = "type = '${Record.typeExtra}', start_time ASC";
 
   Future<int> updateRecord(Record record) async {
     final db = await instance.database;
@@ -184,6 +201,12 @@ class DatabaseHelper {
     return maps.isNotEmpty;
   }
 
+  Future<Set<String>> getHolidayDates() async {
+    final db = await instance.database;
+    final result = await db.query('holidays', columns: ['date']);
+    return result.map((row) => row['date'] as String).toSet();
+  }
+
   Future<int> deleteHoliday(int id) async {
     final db = await instance.database;
     return await db.delete('holidays', where: 'id = ?', whereArgs: [id]);
@@ -202,6 +225,17 @@ class DatabaseHelper {
     return maps.first['value'] as String?;
   }
 
+  // Weekdays (1 = Monday … 7 = Sunday) from the work_days setting
+  Future<Set<int>> getWorkDays() async {
+    final value = await getSetting('work_days') ?? '1,2,3,4,5';
+    return value.split(',').map((d) => int.parse(d.trim())).toSet();
+  }
+
+  Future<DayType> getDayType(String date) async {
+    return DayType.resolve(
+        DateTime.parse(date), await getWorkDays(), await getHolidayDates());
+  }
+
   Future<int> updateSetting(String key, String value) async {
     final db = await instance.database;
     return await db.update(
@@ -218,7 +252,7 @@ class DatabaseHelper {
       'records',
       where: 'date >= ? AND date <= ?',
       whereArgs: [from, to],
-      orderBy: 'date ASC',
+      orderBy: 'date ASC, $_sessionOrder',
     );
     return result.map((map) => Record.fromMap(map)).toList();
   }
@@ -230,6 +264,11 @@ class DatabaseHelper {
       VALUES ('time_rounding_minutes', '0', '${DateTime.now().toIso8601String()}')
     ''');
     }
+    if (oldVersion < 4) {
+      // Existing rows are the single session of their day, so they're regular
+      await db.execute(
+          "ALTER TABLE records ADD COLUMN type TEXT NOT NULL DEFAULT 'regular'");
+    }
   }
 
   Future<void> close() async {
@@ -239,7 +278,7 @@ class DatabaseHelper {
 
   // ─── BACKUP SUPPORT ─────────────────────────────────────
 
-  static const int schemaVersion = 3;
+  static const int schemaVersion = 4;
 
   Future<String> get databaseFilePath async =>
       join(await getDatabasesPath(), 'clockin.db');

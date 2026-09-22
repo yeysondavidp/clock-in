@@ -3,7 +3,8 @@ import 'package:csv/csv.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../database/database_helper.dart';
-import '../models/record.dart';
+import '../models/day_summary.dart';
+import '../models/day_type.dart';
 import '../utils/time_calculator.dart';
 
 class ExportService {
@@ -24,12 +25,17 @@ class ExportService {
       throw Exception('No records found for the selected date range.');
     }
 
+    final workDays = await db.getWorkDays();
+    final holidays = await db.getHolidayDates();
+
     // Build CSV data
     List<List<dynamic>> rows = [];
 
     // Header row
     rows.add([
       'Date',
+      'Day Type',
+      'Session',
       'Clock In',
       'Clock Out',
       'Regular Hours',
@@ -38,15 +44,21 @@ class ExportService {
       'Status',
     ]);
 
-    // Data rows
+    // Data rows — one per session
+    var totals = const DaySummary();
     for (final record in records) {
-      final isComplete = record.endTime != null;
+      final dayType = DayType.resolve(DateTime.parse(record.date), workDays, holidays);
+      final isComplete = record.isComplete;
       final totalWorked = isComplete
           ? (record.totalHours ?? 0) + (record.otimeHours ?? 0)
           : 0.0;
 
+      if (isComplete) totals += DaySummary.fromSessions(dayType, [record]);
+
       rows.add([
         record.date,
+        dayType.label,
+        record.isExtra ? 'Extra' : 'Regular',
         record.startTime ?? '',
         record.endTime ?? '',
         isComplete ? TimeCalculator.formatHours(record.totalHours ?? 0) : '',
@@ -56,22 +68,20 @@ class ExportService {
       ]);
     }
 
-    // Add summary row at the bottom
-    final totalRegular = records.fold<double>(
-        0, (sum, r) => sum + (r.totalHours ?? 0));
-    final totalOvertime = records.fold<double>(
-        0, (sum, r) => sum + (r.otimeHours ?? 0));
+    // Summary rows at the bottom, with overtime broken down by source
+    List<dynamic> summaryRow(String label, {double? regular, required double overtime, double? total}) => [
+          label, '', '', '', '',
+          regular != null ? TimeCalculator.formatHours(regular) : '',
+          TimeCalculator.formatHours(overtime),
+          total != null ? TimeCalculator.formatHours(total) : '',
+          '',
+        ];
 
     rows.add([]); // empty row separator
-    rows.add([
-      'TOTAL',
-      '',
-      '',
-      TimeCalculator.formatHours(totalRegular),
-      TimeCalculator.formatHours(totalOvertime),
-      TimeCalculator.formatHours(totalRegular + totalOvertime),
-      '',
-    ]);
+    rows.add(summaryRow('TOTAL',
+        regular: totals.regular, overtime: totals.totalOvertime, total: totals.total));
+    rows.add(summaryRow('Overtime — workdays', overtime: totals.overtime));
+    rows.add(summaryRow('Overtime — weekends & holidays', overtime: totals.specialOvertime));
 
     // Convert to CSV string
     final csvString = const ListToCsvConverter().convert(rows);
