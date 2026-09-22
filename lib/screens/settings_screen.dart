@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../database/database_helper.dart';
 import '../services/backup_service.dart';
+import '../utils/time_calculator.dart';
 import '../services/update_service.dart';
 import '../services/work_notification_service.dart';
 import '../widgets/update_dialog.dart';
@@ -16,9 +17,10 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final db = DatabaseHelper.instance;
 
-  // Controllers for numeric fields
-  final _standardHoursController = TextEditingController();
-  final _lunchBreakController = TextEditingController();
+  // Numeric values
+  String _standardHours = '8';
+  String _lunchBreak = '30';
+  Set<int> _workDays = {1, 2, 3, 4, 5};
 
   // Time values
   String _checkinTime  = '08:00';
@@ -40,14 +42,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _loadSettings();
   }
 
-  @override
-  void dispose() {
-    // Always dispose controllers to free memory
-    _standardHoursController.dispose();
-    _lunchBreakController.dispose();
-    super.dispose();
-  }
-
   // ─── DATA ───────────────────────────────────────────────
 
   Future<void> _loadSettings() async {
@@ -57,13 +51,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final lunchBreak    = await db.getSetting('lunch_break_minutes')        ?? '30';
     final notifications = await db.getSetting('notifications_enabled')      ?? 'true';
     final rounding = await db.getSetting('time_rounding_minutes') ?? '0';
+    final workDays = await db.getWorkDays();
     final info = await PackageInfo.fromPlatform();
 
     setState(() {
       _checkinTime  = checkin;
       _checkoutTime = checkout;
-      _standardHoursController.text = standardHours;
-      _lunchBreakController.text    = lunchBreak;
+      _standardHours = standardHours;
+      _lunchBreak    = lunchBreak;
+      _workDays      = workDays;
       _notificationsEnabled         = notifications == 'true';
       _isLoading = false;
       _roundingMinutes = int.parse(rounding);
@@ -142,7 +138,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _saveSetting(String key, String value) async {
     await db.updateSetting(key, value);
     await WorkNotificationService.instance.scheduleAllNotifications();
-    _showMessage('Setting saved');
   }
 
   // ─── TIME PICKER ────────────────────────────────────────
@@ -172,7 +167,89 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  // ─── NUMBER DIALOG ──────────────────────────────────────
+
+  // Edits a numeric setting in a dialog so the value is only saved on
+  // confirmation (inline fields lost edits unless Enter was pressed)
+  Future<String?> _editNumber({
+    required String title,
+    required String initial,
+    required String suffix,
+    required String? Function(String) validate,
+    String? helper,
+  }) {
+    return showDialog<String>(
+      context: context,
+      builder: (context) => _NumberDialog(
+        title: title,
+        initial: initial,
+        suffix: suffix,
+        helper: helper,
+        validate: validate,
+      ),
+    );
+  }
+
+  Future<void> _editStandardHours() async {
+    final value = await _editNumber(
+      title: 'Standard work hours',
+      initial: _standardHours,
+      suffix: 'h',
+      helper: 'Time worked beyond this on a workday counts as overtime.',
+      validate: (v) {
+        final parsed = double.tryParse(v);
+        return parsed == null || parsed <= 0 || parsed > 24
+            ? 'Enter hours between 0 and 24'
+            : null;
+      },
+    );
+    if (value == null) return;
+    await _saveSetting('standard_work_hours', value);
+    setState(() => _standardHours = value);
+  }
+
+  Future<void> _editLunchBreak() async {
+    final value = await _editNumber(
+      title: 'Lunch break',
+      initial: _lunchBreak,
+      suffix: 'min',
+      helper: 'Deducted from regular shifts longer than 6 hours. Overtime sessions are never deducted.',
+      validate: (v) {
+        final parsed = int.tryParse(v);
+        return parsed == null || parsed < 0 || parsed > 240
+            ? 'Enter whole minutes, 0 to 240'
+            : null;
+      },
+    );
+    if (value == null) return;
+    await _saveSetting('lunch_break_minutes', value);
+    setState(() => _lunchBreak = value);
+  }
+
+  Future<void> _toggleWorkDay(int day, bool selected) async {
+    final updated = {..._workDays};
+    selected ? updated.add(day) : updated.remove(day);
+    if (updated.isEmpty) {
+      _showMessage('Select at least one work day');
+      return;
+    }
+    setState(() => _workDays = updated);
+    await _saveSetting('work_days', (updated.toList()..sort()).join(','));
+  }
+
   // ─── UI ─────────────────────────────────────────────────
+
+  static const _roundingOptions = {0: 'Off', 2: '±2 min', 3: '±3 min', 5: '±5 min', 10: '±10 min'};
+  static const _weekdayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+  // '8' → '8 h', '7.5' → '7h 30m'
+  String get _formattedStandardHours {
+    final hours = double.tryParse(_standardHours);
+    if (hours == null) return '$_standardHours h';
+    return hours == hours.roundToDouble()
+        ? '${hours.toInt()} h'
+        : TimeCalculator.formatHours(hours);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -181,15 +258,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
+        padding: const EdgeInsets.only(bottom: 24),
         children: [
 
           // ── NOTIFICATIONS SECTION ──────────────────
-          _sectionHeader('Notifications'),
+          _sectionHeader('Reminders'),
 
           // Master switch
           SwitchListTile(
-            title: const Text('Enable Notifications'),
-            subtitle: const Text('Receive daily clock in/out reminders'),
+            secondary: const Icon(Icons.notifications_outlined),
+            title: const Text('Daily reminders'),
+            subtitle: const Text('Clock in/out reminders on work days'),
             value: _notificationsEnabled,
             onChanged: (value) async {
               setState(() => _notificationsEnabled = value);
@@ -197,195 +276,115 @@ class _SettingsScreenState extends State<SettingsScreen> {
             },
           ),
 
-          // Clock in time
-          ListTile(
-            title: const Text('Clock In Reminder'),
-            subtitle: Text(_checkinTime),
-            trailing: const Icon(Icons.access_time),
+          _valueTile(
+            icon: Icons.login,
+            title: 'Clock in reminder',
+            value: _checkinTime,
             enabled: _notificationsEnabled,
-            onTap: _notificationsEnabled
-                ? () => _pickTime('checkin_notification_time', _checkinTime)
-                : null,
+            onTap: () => _pickTime('checkin_notification_time', _checkinTime),
           ),
 
-          // Clock out time
-          ListTile(
-            title: const Text('Clock Out Reminder'),
-            subtitle: Text(_checkoutTime),
-            trailing: const Icon(Icons.access_time),
+          _valueTile(
+            icon: Icons.logout,
+            title: 'Clock out reminder',
+            value: _checkoutTime,
             enabled: _notificationsEnabled,
-            onTap: _notificationsEnabled
-                ? () => _pickTime('checkout_notification_time', _checkoutTime)
-                : null,
+            onTap: () => _pickTime('checkout_notification_time', _checkoutTime),
           ),
 
-          const Divider(),
+          // ── WORK SCHEDULE SECTION ──────────────────
+          _sectionHeader('Work schedule'),
 
-          // ── WORK HOURS SECTION ─────────────────────
-          _sectionHeader('Work Hours'),
-
-          // Standard hours
+          ListTile(
+            leading: const Icon(Icons.date_range_outlined),
+            title: const Text('Work days'),
+            subtitle: const Text('Time logged on other days counts as overtime'),
+          ),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.fromLTRB(72, 0, 24, 8),
             child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Standard Work Hours',
-                          style: TextStyle(fontSize: 16)),
-                      Text('Hours before overtime kicks in',
-                          style: TextStyle(fontSize: 13, color: Colors.grey)),
-                    ],
-                  ),
-                ),
-                SizedBox(
-                  width: 60,
-                  child: TextField(
-                    controller: _standardHoursController,
-                    keyboardType: TextInputType.number,
-                    textAlign: TextAlign.center,
-                    decoration: const InputDecoration(
-                      suffix: Text('h'),
-                      isDense: true,
-                    ),
-                    onSubmitted: (value) async {
-                      final parsed = double.tryParse(value);
-                      if (parsed != null && parsed > 0) {
-                        await _saveSetting('standard_work_hours', value);
-                      } else {
-                        _showMessage('Please enter a valid number');
-                        _standardHoursController.text =
-                            await db.getSetting('standard_work_hours') ?? '8';
-                      }
-                    },
-                  ),
-                ),
+                for (var day = 1; day <= 7; day++) _dayToggle(day),
               ],
             ),
           ),
 
-          // Lunch break
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              children: [
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Lunch Break',
-                          style: TextStyle(fontSize: 16)),
-                      Text('Deducted when worked more than 6h',
-                          style: TextStyle(fontSize: 13, color: Colors.grey)),
-                    ],
-                  ),
-                ),
-                SizedBox(
-                  width: 60,
-                  child: TextField(
-                    controller: _lunchBreakController,
-                    keyboardType: TextInputType.number,
-                    textAlign: TextAlign.center,
-                    decoration: const InputDecoration(
-                      suffix: Text('min'),
-                      isDense: true,
-                    ),
-                    onSubmitted: (value) async {
-                      final parsed = int.tryParse(value);
-                      if (parsed != null && parsed >= 0) {
-                        await _saveSetting('lunch_break_minutes', value);
-                      } else {
-                        _showMessage('Please enter a valid number');
-                        _lunchBreakController.text =
-                            await db.getSetting('lunch_break_minutes') ?? '30';
-                      }
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // Time Rounding
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              children: [
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Time Rounding',
-                          style: TextStyle(fontSize: 16)),
-                      Text('Round clock in/out to nearest interval',
-                          style: TextStyle(fontSize: 13, color: Colors.grey)),
-                    ],
-                  ),
-                ),
-                DropdownButton<int>(
-                  value: _roundingMinutes,
-                  items: const [
-                    DropdownMenuItem(value: 0,  child: Text('Off')),
-                    DropdownMenuItem(value: 2, child: Text('2 min')),
-                    DropdownMenuItem(value: 3, child: Text('3 min')),
-                    DropdownMenuItem(value: 5,  child: Text('5 min')),
-                    DropdownMenuItem(value: 10, child: Text('10 min')),
-                  ],
-                  onChanged: (value) async {
-                    if (value == null) return;
-                    setState(() => _roundingMinutes = value);
-                    await _saveSetting('time_rounding_minutes', value.toString());
-
-                    // Temporal debug
-                    final saved = await db.getSetting('time_rounding_minutes');
-                    print('Saved rounding: $saved');
-                  },
-                ),
-              ],
-            ),
+          _valueTile(
+            icon: Icons.schedule,
+            title: 'Standard work hours',
+            subtitle: 'Overtime starts after this',
+            value: _formattedStandardHours,
+            onTap: _editStandardHours,
           ),
 
-          const Divider(),
+          _valueTile(
+            icon: Icons.restaurant_outlined,
+            title: 'Lunch break',
+            subtitle: 'Deducted from regular shifts over 6h',
+            value: '$_lunchBreak min',
+            onTap: _editLunchBreak,
+          ),
+
+          ListTile(
+            leading: const Icon(Icons.timelapse),
+            title: const Text('Time rounding'),
+            subtitle: const Text('Snap to the nearest 5 min within this margin'),
+            trailing: DropdownButton<int>(
+              value: _roundingMinutes,
+              underline: const SizedBox.shrink(),
+              borderRadius: BorderRadius.circular(12),
+              style: _valueStyle(context),
+              items: [
+                for (final entry in _roundingOptions.entries)
+                  DropdownMenuItem(value: entry.key, child: Text(entry.value)),
+              ],
+              onChanged: (value) async {
+                if (value == null) return;
+                setState(() => _roundingMinutes = value);
+                await _saveSetting('time_rounding_minutes', value.toString());
+              },
+            ),
+          ),
 
           // ── BACKUP SECTION ─────────────────────────
           _sectionHeader('Backup'),
 
           ListTile(
-            title: const Text('Export Backup'),
+            leading: const Icon(Icons.upload_file_outlined),
+            title: const Text('Export backup'),
             subtitle: const Text('Save a copy of all your data'),
-            trailing: const Icon(Icons.upload_file),
             enabled: !_backupBusy,
             onTap: _exportBackup,
           ),
 
           ListTile(
-            title: const Text('Restore Backup'),
+            leading: const Icon(Icons.settings_backup_restore),
+            title: const Text('Restore backup'),
             subtitle: const Text('Replace current data with a backup file'),
-            trailing: const Icon(Icons.settings_backup_restore),
             enabled: !_backupBusy,
             onTap: _restoreBackup,
           ),
 
-          const Divider(),
+          if (_backupBusy)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: LinearProgressIndicator(),
+            ),
 
           // ── APP SECTION ────────────────────────────
-          _sectionHeader('App'),
+          _sectionHeader('About'),
 
           ListTile(
-            title: const Text('Version'),
-            trailing: Text(_appVersion,
-                style: const TextStyle(color: Colors.grey)),
-          ),
-
-          ListTile(
-            title: const Text('Check for Updates'),
+            leading: const Icon(Icons.system_update_outlined),
+            title: const Text('Check for updates'),
+            subtitle: Text('Version $_appVersion'),
             trailing: _checkingUpdate
                 ? const SizedBox(
                     width: 20,
                     height: 20,
                     child: CircularProgressIndicator(strokeWidth: 2))
-                : const Icon(Icons.system_update),
+                : null,
             enabled: !_checkingUpdate,
             onTap: _checkForUpdate,
           ),
@@ -394,9 +393,73 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  // Row with its current value on the right, in the accent color
+  Widget _valueTile({
+    required IconData icon,
+    required String title,
+    String? subtitle,
+    required String value,
+    required VoidCallback onTap,
+    bool enabled = true,
+  }) {
+    return ListTile(
+      leading: Icon(icon),
+      title: Text(title),
+      subtitle: subtitle != null ? Text(subtitle) : null,
+      trailing: Text(value,
+          style: enabled
+              ? _valueStyle(context)
+              : _valueStyle(context).copyWith(color: Theme.of(context).disabledColor)),
+      enabled: enabled,
+      onTap: enabled ? onTap : null,
+    );
+  }
+
+  // Round toggle with the weekday's initial, filled when it's a work day
+  Widget _dayToggle(int day) {
+    final scheme = Theme.of(context).colorScheme;
+    final selected = _workDays.contains(day);
+    final label = _weekdayLabels[day - 1];
+
+    return Semantics(
+      label: label,
+      selected: selected,
+      button: true,
+      child: Tooltip(
+        message: label,
+        child: InkResponse(
+          onTap: () => _toggleWorkDay(day, !selected),
+          radius: 22,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            width: 36,
+            height: 36,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: selected ? scheme.primary : Colors.transparent,
+              border: Border.all(color: selected ? scheme.primary : scheme.outline),
+            ),
+            child: Text(label[0],
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: selected ? scheme.onPrimary : scheme.onSurfaceVariant,
+                )),
+          ),
+        ),
+      ),
+    );
+  }
+
+  TextStyle _valueStyle(BuildContext context) => TextStyle(
+        fontSize: 16,
+        fontWeight: FontWeight.w600,
+        color: Theme.of(context).colorScheme.primary,
+      );
+
   Widget _sectionHeader(String title) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+      padding: const EdgeInsets.fromLTRB(16, 24, 16, 4),
       child: Text(
         title.toUpperCase(),
         style: TextStyle(
@@ -413,6 +476,75 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message)),
+    );
+  }
+}
+
+// Owns its controller so it's disposed only after the dialog's exit animation
+class _NumberDialog extends StatefulWidget {
+  final String title;
+  final String initial;
+  final String suffix;
+  final String? helper;
+  final String? Function(String) validate;
+
+  const _NumberDialog({
+    required this.title,
+    required this.initial,
+    required this.suffix,
+    required this.validate,
+    this.helper,
+  });
+
+  @override
+  State<_NumberDialog> createState() => _NumberDialogState();
+}
+
+class _NumberDialogState extends State<_NumberDialog> {
+  late final _controller = TextEditingController(text: widget.initial);
+  String? _error;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    // Accept a decimal comma too, as the numeric keyboard offers one
+    final value = _controller.text.trim().replaceAll(',', '.');
+    final message = widget.validate(value);
+    if (message != null) {
+      setState(() => _error = message);
+    } else {
+      Navigator.pop(context, value);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        decoration: InputDecoration(
+          suffixText: widget.suffix,
+          helperText: widget.helper,
+          helperMaxLines: 2,
+          errorText: _error,
+          errorMaxLines: 2,
+        ),
+        onSubmitted: (_) => _submit(),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(onPressed: _submit, child: const Text('Save')),
+      ],
     );
   }
 }
