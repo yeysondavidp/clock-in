@@ -7,6 +7,7 @@ import '../models/record.dart';
 import '../services/session_service.dart';
 import '../utils/time_calculator.dart';
 import '../services/export_service.dart';
+import '../services/timesheet_export_service.dart';
 
 class RecordsScreen extends StatefulWidget {
   const RecordsScreen({super.key});
@@ -376,7 +377,12 @@ class _RecordsScreenState extends State<RecordsScreen> {
               onPressed: () async {
                 Navigator.pop(context);
                 try {
-                  await ExportService.instance.exportRecordsToCSV(fromDate, toDate);
+                  final format = await db.getSetting('export_format') ?? 'csv';
+                  if (format == 'timesheet') {
+                    await _exportTimesheet(fromDate, toDate);
+                  } else {
+                    await ExportService.instance.exportRecordsToCSV(fromDate, toDate);
+                  }
                 } catch (e) {
                   if (mounted) {
                     _showMessage(e.toString().replaceAll('Exception: ', ''));
@@ -389,6 +395,59 @@ class _RecordsScreenState extends State<RecordsScreen> {
       ),
     );
   }
+  // Fills the user's timesheet and shows what was written and what differs
+  // before sharing it, since rows that already had data are left as they were
+  Future<void> _exportTimesheet(DateTime fromDate, DateTime toDate) async {
+    final service = TimesheetExportService.instance;
+    final export = await service.fill(fromDate, toDate);
+    if (export == null || !mounted) return;
+    final result = export.result;
+
+    final share = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Timesheet'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(result.filled.isEmpty
+                  ? 'Nothing new to fill: the timesheet already has these days.'
+                  : '${result.filled.length} day${result.filled.length == 1 ? '' : 's'} filled.'),
+              if (result.conflicts.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Text('Different in the timesheet, left unchanged:',
+                    style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 4),
+                for (final c in result.conflicts) Text('• $c'),
+              ],
+              if (result.skipped.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Text('Skipped:', style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 4),
+                for (final s in result.skipped) Text('• $s'),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(result.filled.isEmpty ? 'Close' : 'Cancel'),
+          ),
+          if (result.filled.isNotEmpty)
+            FilledButton.icon(
+              icon: const Icon(Icons.share),
+              label: const Text('Share'),
+              onPressed: () => Navigator.pop(context, true),
+            ),
+        ],
+      ),
+    );
+    if (share == true) await service.share(export);
+  }
+
   void _showMessage(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message)),
@@ -406,7 +465,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
           IconButton(
             icon: const Icon(Icons.download),
             onPressed: _showExportDialog,
-            tooltip: 'Export to CSV',
+            tooltip: 'Export',
           ),
         ],
       ),

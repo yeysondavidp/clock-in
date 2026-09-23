@@ -30,6 +30,7 @@ A Flutter mobile application for tracking daily work attendance. The app sends s
 - NSW public holidays pre-loaded (2026–2027)
 - Full record editing in case the user missed clocking in or out
 - CSV export with date range filter
+- Optional timesheet export: fills the user's own yearly `.xlsx` timesheet, only in empty rows, and lists days that differ
 - Holidays management screen (add / delete)
 - Configurable settings: notification times, standard work hours, lunch break duration, time rounding
 
@@ -46,6 +47,7 @@ A Flutter mobile application for tracking daily work attendance. The app sends s
 | Date Formatting | `intl` |
 | Timezone Support | `timezone`, `flutter_timezone` |
 | CSV Export | `csv`, `path_provider`, `share_plus` |
+| Timesheet Export | `archive`, `xml`, `file_picker` |
 | Battery Exemption | `android_intent_plus`, `device_info_plus` |
 
 ---
@@ -70,7 +72,9 @@ lib/
 ├── services/
 │   ├── notification_service.dart     # Notification plugin initialization
 │   ├── work_notification_service.dart # WorkManager background scheduling
-│   └── export_service.dart           # CSV export logic
+│   ├── export_service.dart           # CSV export logic
+│   ├── timesheet_export_service.dart # Timesheet export: picks the .xlsx and shares the result
+│   └── timesheet_filler.dart         # Writes records into the timesheet's sheet XML
 └── utils/
     └── time_calculator.dart          # Hours, overtime and time rounding logic
 ```
@@ -218,6 +222,8 @@ intl: ^0.19.0
 csv: ^6.0.0
 path_provider: ^2.1.0
 share_plus: ^10.0.0
+archive: ^4.0.9
+xml: ^6.6.1
 android_intent_plus: ^5.0.0
 device_info_plus: ^10.0.0
 ```
@@ -250,6 +256,7 @@ NSW public holidays for 2026 and 2027 are pre-loaded on first install based on o
 - [x] Settings screen
 - [x] Holidays management screen
 - [x] CSV export with date range filter
+- [x] Timesheet (.xlsx) export
 - [x] Time rounding for clock in/out
 - [ ] App icon
 - [ ] Reports / summary view

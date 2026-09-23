@@ -70,6 +70,7 @@ class DatabaseHelper {
       {'key': 'work_days',                  'value': '1,2,3,4,5'},
       {'key': 'notifications_enabled',      'value': 'true'},
       {'key': 'time_rounding_minutes', 'value': '0'},
+      {'key': 'export_format',              'value': 'csv'},
     ];
 
     for (final s in defaults) {
@@ -269,6 +270,12 @@ class DatabaseHelper {
       await db.execute(
           "ALTER TABLE records ADD COLUMN type TEXT NOT NULL DEFAULT 'regular'");
     }
+    if (oldVersion < 5) {
+      await db.execute('''
+      INSERT OR IGNORE INTO settings (key, value, timestamp)
+      VALUES ('export_format', 'csv', '${DateTime.now().toIso8601String()}')
+    ''');
+    }
   }
 
   Future<void> close() async {
@@ -278,7 +285,7 @@ class DatabaseHelper {
 
   // ─── BACKUP SUPPORT ─────────────────────────────────────
 
-  static const int schemaVersion = 4;
+  static const int schemaVersion = 5;
 
   Future<String> get databaseFilePath async =>
       join(await getDatabasesPath(), 'clockin.db');

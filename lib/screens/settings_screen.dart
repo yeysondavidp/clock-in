@@ -26,6 +26,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _checkinTime  = '08:00';
   String _checkoutTime = '16:00';
   int _roundingMinutes = 0;
+  String _exportFormat = 'csv';
 
   // Switch value
   bool _notificationsEnabled = true;
@@ -51,6 +52,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final lunchBreak    = await db.getSetting('lunch_break_minutes')        ?? '30';
     final notifications = await db.getSetting('notifications_enabled')      ?? 'true';
     final rounding = await db.getSetting('time_rounding_minutes') ?? '0';
+    final exportFormat = await db.getSetting('export_format') ?? 'csv';
     final workDays = await db.getWorkDays();
     final info = await PackageInfo.fromPlatform();
 
@@ -63,6 +65,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _notificationsEnabled         = notifications == 'true';
       _isLoading = false;
       _roundingMinutes = int.parse(rounding);
+      _exportFormat = exportFormat;
       _appVersion = info.version;
     });
   }
@@ -240,6 +243,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // ─── UI ─────────────────────────────────────────────────
 
   static const _roundingOptions = {0: 'Off', 2: '±2 min', 3: '±3 min', 5: '±5 min', 10: '±10 min'};
+  static const _exportFormats = {'csv': 'CSV', 'timesheet': 'Timesheet'};
   static const _weekdayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
   // '8' → '8 h', '7.5' → '7h 30m'
@@ -343,6 +347,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 if (value == null) return;
                 setState(() => _roundingMinutes = value);
                 await _saveSetting('time_rounding_minutes', value.toString());
+              },
+            ),
+          ),
+
+          // ── EXPORT SECTION ─────────────────────────
+          _sectionHeader('Export'),
+
+          ListTile(
+            leading: const Icon(Icons.table_chart_outlined),
+            title: const Text('Export format'),
+            subtitle: Text(_exportFormat == 'timesheet'
+                ? 'Fills your own .xlsx timesheet'
+                : 'Records as a CSV file'),
+            trailing: DropdownButton<String>(
+              value: _exportFormat,
+              underline: const SizedBox.shrink(),
+              borderRadius: BorderRadius.circular(12),
+              style: _valueStyle(context),
+              items: [
+                for (final entry in _exportFormats.entries)
+                  DropdownMenuItem(value: entry.key, child: Text(entry.value)),
+              ],
+              onChanged: (value) async {
+                if (value == null) return;
+                setState(() => _exportFormat = value);
+                await db.updateSetting('export_format', value);
               },
             ),
           ),
